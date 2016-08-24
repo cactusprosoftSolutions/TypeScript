@@ -300,8 +300,8 @@ namespace ts {
                     }
                 }
                 // For syntactic classifications, all trivia are classcified together, including jsdoc comments.
-                // For that to work, the jsdoc comments should still be the leading trivia of the first child. 
-                // Restoring the scanner position ensures that. 
+                // For that to work, the jsdoc comments should still be the leading trivia of the first child.
+                // Restoring the scanner position ensures that.
                 pos = this.pos;
                 forEachChild(this, processNode, processNodes);
                 if (pos < this.end) {
@@ -4618,7 +4618,7 @@ namespace ts {
 
                 let signature: Signature;
                 type = isThisExpression ? typeChecker.getTypeAtLocation(location) : typeChecker.getTypeOfSymbolAtLocation(symbol, location);
-                if (type) {
+                if (type) { //unnecessary check -- it's always defined... but may be unknown!
                     if (location.parent && location.parent.kind === SyntaxKind.PropertyAccessExpression) {
                         const right = (<PropertyAccessExpression>location.parent).name;
                         // Either the location is on the right of a property access, or on the left and the right is missing
@@ -4715,7 +4715,8 @@ namespace ts {
                         if (functionDeclaration.kind === SyntaxKind.Constructor) {
                             // show (constructor) Type(...) signature
                             symbolKind = ScriptElementKind.constructorImplementationElement;
-                            addPrefixForAnyFunctionOrVar(type.symbol, symbolKind);
+                            const sym = symbol.declarations[0].kind === SyntaxKind.Constructor ? symbol.parent : type.symbol; //ugly
+                            addPrefixForAnyFunctionOrVar(sym, symbolKind); //this was failing
                         }
                         else {
                             // (function/method) symbol(..signature)
@@ -6009,6 +6010,7 @@ namespace ts {
                 case SyntaxKind.Identifier:
                 case SyntaxKind.ThisKeyword:
                 // case SyntaxKind.SuperKeyword: TODO:GH#9268
+                case SyntaxKind.ConstructorKeyword:
                 case SyntaxKind.StringLiteral:
                     return getReferencedSymbolsForNode(node, program.getSourceFiles(), findInStrings, findInComments);
             }
@@ -6053,7 +6055,11 @@ namespace ts {
                 return getReferencesForSuperKeyword(node);
             }
 
-            const symbol = typeChecker.getSymbolAtLocation(node);
+            let symbol =
+                node.kind === SyntaxKind.ConstructorKeyword ?
+                node.parent.symbol ://ugly
+                //for constructor, this will normally return the class...
+                typeChecker.getSymbolAtLocation(node);
 
             if (!symbol && node.kind === SyntaxKind.StringLiteral) {
                 return getReferencesForStringLiteral(<StringLiteral>node, sourceFiles);
@@ -6079,7 +6085,8 @@ namespace ts {
 
             // Get the text to search for.
             // Note: if this is an external module symbol, the name doesn't include quotes.
-            const declaredName = stripQuotes(getDeclaredName(typeChecker, symbol, node));
+            const nameSymbol = node.kind === SyntaxKind.ConstructorKeyword ? symbol.parent : symbol; // A constructor is referenced using the name of its class.
+            const declaredName = stripQuotes(getDeclaredName(typeChecker, nameSymbol, node));
 
             // Try to get the smallest valid scope that we can limit our search to;
             // otherwise we'll need to search globally (i.e. include each file).
@@ -6093,7 +6100,7 @@ namespace ts {
                 getReferencesInNode(scope, symbol, declaredName, node, searchMeaning, findInStrings, findInComments, result, symbolToIndex);
             }
             else {
-                const internedName = getInternedName(symbol, node, declarations);
+                const internedName = node.kind === SyntaxKind.ConstructorKeyword ? declaredName : getInternedName(symbol, node, declarations);
                 for (const sourceFile of sourceFiles) {
                     cancellationToken.throwIfCancellationRequested();
 
@@ -6810,8 +6817,12 @@ namespace ts {
                 }
             }
 
+            //move
+            function getSuper(cls: ClassLikeDeclaration) {
+            }
+
             function getRelatedSymbol(searchSymbols: Symbol[], referenceSymbol: Symbol, referenceLocation: Node): Symbol {
-                if (searchSymbols.indexOf(referenceSymbol) >= 0) {
+                if (contains(searchSymbols, referenceSymbol)) {
                     return referenceSymbol;
                 }
 
@@ -6820,6 +6831,20 @@ namespace ts {
                 const aliasSymbol = getAliasSymbolForPropertyNameSymbol(referenceSymbol, referenceLocation);
                 if (aliasSymbol) {
                     return getRelatedSymbol(searchSymbols, aliasSymbol, referenceLocation);
+                }
+
+                // If we are in a constructor and we didn't find the symbol yet, we should try looking for the constructor instead.
+                if (referenceLocation.parent.kind === SyntaxKind.NewExpression && referenceSymbol.members && referenceSymbol.members["__constructor"]) {
+                    return getRelatedSymbol(searchSymbols, referenceSymbol.members["__constructor"], referenceLocation.parent);
+                }
+
+                //handle super here?
+                if (referenceLocation.parent.kind === SyntaxKind.ExpressionWithTypeArguments && referenceLocation.parent.parent.kind === SyntaxKind.HeritageClause) {
+                    const cls = <ClassLikeDeclaration>referenceLocation.parent.parent.parent;
+                    if (cls.kind !== SyntaxKind.InterfaceDeclaration) {
+                        Debug.assert(cls.kind === SyntaxKind.ClassDeclaration || cls.kind === SyntaxKind.ClassExpression);
+                        return getSuper(<ClassLikeDeclaration>cls);
+                    }
                 }
 
                 // If the reference location is in an object literal, try to get the contextual type for the
