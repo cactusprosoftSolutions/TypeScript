@@ -6438,11 +6438,93 @@ namespace ts {
                                 const referencedSymbol = getReferencedSymbol(shorthandValueSymbol);
                                 referencedSymbol.references.push(getReferenceEntryFromNode(referenceSymbolDeclaration.name));
                             }
+                            else if (searchLocation.kind === SyntaxKind.ConstructorKeyword) {
+                                //handle super here?
+                                if (referenceLocation.parent.kind === SyntaxKind.ExpressionWithTypeArguments && referenceLocation.parent.parent.kind === SyntaxKind.HeritageClause) {
+                                    //TODO: extract to function
+                                    const cls = <ClassLikeDeclaration>referenceLocation.parent.parent.parent;
+                                    if (cls.kind !== SyntaxKind.InterfaceDeclaration) {
+                                        Debug.assert(cls.kind === SyntaxKind.ClassDeclaration || cls.kind === SyntaxKind.ClassExpression);
+
+                                        const clsSymbol = searchSymbol.parent;
+                                        Debug.assert(clsSymbol.valueDeclaration.kind === SyntaxKind.ClassDeclaration); //TODO: or classexpression
+                                        if (getRelatedSymbol([clsSymbol], referenceSymbol, referenceLocation)) {
+                                            //return getSuper(<ClassLikeDeclaration>cls);
+                                            const supers = getSuperCalls(cls);
+                                            if (supers.length) {
+                                                const referencedSymbol = getReferencedSymbol(clsSymbol);
+                                                addRange(referencedSymbol.references, map(supers, getReferenceEntryFromNode));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     });
                 }
 
                 return;
+
+                function foo() {
+                }
+
+                //move
+                //returns an array of SuperKeyword nodes
+                function getSuperCalls(cls: ClassLikeDeclaration): Node[] {
+                    const symbol = cls.symbol;
+                    const ctr = symbol.members["__constructor"];
+                    const result: Node[] = [];
+                    if (!ctr) {
+                        return result;
+                    }
+                    for (const decl of ctr.declarations) {
+                        Debug.assert(decl.kind === SyntaxKind.Constructor);
+                        if ((<ConstructorDeclaration>decl).body) {
+                            findSuperCalls((<ConstructorDeclaration>decl).body);
+                        }
+                    };
+                    return result;
+
+                    function findSuperCalls(body: Node) {
+                        forEachChild(body, child => {
+                            if (child.kind === SyntaxKind.SuperKeyword) {
+                                result.push(child);
+                            }
+                            else {
+                                findSuperCalls(child);
+                            }
+                        });
+                    }
+                }
+
+                //move
+                /*
+                function getSuper(cls: ClassLikeDeclaration): Symbol | undefined {
+                    const symbol = cls.symbol;
+                    const ctr = symbol.members["__constructor"];
+                    if (!ctr) {
+                        return undefined;
+                    }
+                    return forEach(ctr.declarations, (decl: ConstructorDeclaration) => {
+                        Debug.assert(decl.kind === SyntaxKind.Constructor);
+                        if (decl.body) {
+                            return findSuperCall(decl.body);
+                        }
+                    });
+                }
+
+                function findSuperCall(body: Node): Symbol | undefined {
+                    return forEachChild(body, child => {
+                        if (child.kind === SyntaxKind.SuperKeyword) {
+                            debugger;
+                            return typeChecker.getSymbolAtLocation(child);
+                        }
+                        else {
+                            return findSuperCall(child);
+                        }
+                    });
+                }
+                */
 
                 function getReferencedSymbol(symbol: Symbol): ReferencedSymbol {
                     const symbolId = getSymbolId(symbol);
@@ -6817,11 +6899,7 @@ namespace ts {
                 }
             }
 
-            //move
-            function getSuper(cls: ClassLikeDeclaration) {
-            }
-
-            function getRelatedSymbol(searchSymbols: Symbol[], referenceSymbol: Symbol, referenceLocation: Node): Symbol {
+            function getRelatedSymbol(searchSymbols: Symbol[], referenceSymbol: Symbol, referenceLocation: Node): Symbol | undefined {
                 if (contains(searchSymbols, referenceSymbol)) {
                     return referenceSymbol;
                 }
@@ -6839,13 +6917,13 @@ namespace ts {
                 }
 
                 //handle super here?
-                if (referenceLocation.parent.kind === SyntaxKind.ExpressionWithTypeArguments && referenceLocation.parent.parent.kind === SyntaxKind.HeritageClause) {
-                    const cls = <ClassLikeDeclaration>referenceLocation.parent.parent.parent;
-                    if (cls.kind !== SyntaxKind.InterfaceDeclaration) {
-                        Debug.assert(cls.kind === SyntaxKind.ClassDeclaration || cls.kind === SyntaxKind.ClassExpression);
-                        return getSuper(<ClassLikeDeclaration>cls);
-                    }
-                }
+                //if (referenceLocation.parent.kind === SyntaxKind.ExpressionWithTypeArguments && referenceLocation.parent.parent.kind === SyntaxKind.HeritageClause) {
+                //    const cls = <ClassLikeDeclaration>referenceLocation.parent.parent.parent;
+                //    if (cls.kind !== SyntaxKind.InterfaceDeclaration) {
+                //        Debug.assert(cls.kind === SyntaxKind.ClassDeclaration || cls.kind === SyntaxKind.ClassExpression);
+                //        return getSuper(<ClassLikeDeclaration>cls);
+                //   }
+                //}
 
                 // If the reference location is in an object literal, try to get the contextual type for the
                 // object literal, lookup the property symbol in the contextual type, and use this symbol to
