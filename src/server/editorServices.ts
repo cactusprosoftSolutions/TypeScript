@@ -714,10 +714,9 @@ namespace ts.server {
                 /*languageServiceEnabled*/ !this.exceededTotalSizeLimitForNonTsFiles(options, files, externalFilePropertyReader),
                 !!options.compileOnSave);
 
-            const errors = this.addFilesToProjectAndUpdateGraph(project, files, externalFilePropertyReader, /*clientFileName*/ undefined, typingOptions);
-
+            this.addFilesToProjectAndUpdateGraph(project, files, externalFilePropertyReader, /*clientFileName*/ undefined, typingOptions);
             this.externalProjects.push(project);
-            return { project, errors };
+            return project;
         }
 
         private createAndAddConfiguredProject(configFileName: NormalizedPath, projectOptions: ProjectOptions, clientFileName?: string) {
@@ -732,7 +731,7 @@ namespace ts.server {
                 /*languageServiceEnabled*/ !sizeLimitExceeded,
                 /*compileOnSaveEnabled*/ !!projectOptions.compileOnSave);
 
-            const errors = this.addFilesToProjectAndUpdateGraph(project, projectOptions.files, fileNamePropertyReader, clientFileName, projectOptions.typingOptions);
+            this.addFilesToProjectAndUpdateGraph(project, projectOptions.files, fileNamePropertyReader, clientFileName, projectOptions.typingOptions);
 
             project.watchConfigFile(project => this.onConfigChangedForConfiguredProject(project));
             if (!sizeLimitExceeded) {
@@ -741,7 +740,7 @@ namespace ts.server {
             project.watchWildcards((project, path) => this.onSourceFileInDirectoryChangedForConfiguredProject(project, path));
 
             this.configuredProjects.push(project);
-            return { project, errors };
+            return project;
         }
 
         private watchConfigDirectoryForProject(project: ConfiguredProject, options: ProjectOptions): void {
@@ -750,7 +749,7 @@ namespace ts.server {
             }
         }
 
-        private addFilesToProjectAndUpdateGraph<T>(project: ConfiguredProject | ExternalProject, files: T[], propertyReader: FilePropertyReader<T>, clientFileName: string, typingOptions: TypingOptions): Diagnostic[] {
+        private addFilesToProjectAndUpdateGraph<T>(project: ConfiguredProject | ExternalProject, files: T[], propertyReader: FilePropertyReader<T>, clientFileName: string, typingOptions: TypingOptions): void {
             let errors: Diagnostic[];
             for (const f of files) {
                 const rootFilename = propertyReader.getFileName(f);
@@ -764,9 +763,9 @@ namespace ts.server {
                     (errors || (errors = [])).push(createCompilerDiagnostic(Diagnostics.File_0_not_found, rootFilename));
                 }
             }
+            project.setProjectErrors(errors);
             project.setTypingOptions(typingOptions);
             project.updateGraph();
-            return errors;
         }
 
         private openConfigFile(configFileName: NormalizedPath, clientFileName?: string): OpenConfigFileResult {
@@ -774,8 +773,8 @@ namespace ts.server {
             if (!conversionResult.success) {
                 return { success: false, errors: conversionResult.errors };
             }
-            const { project, errors } = this.createAndAddConfiguredProject(configFileName, conversionResult.projectOptions, clientFileName);
-            return { success: true, project, errors };
+            const project = this.createAndAddConfiguredProject(configFileName, conversionResult.projectOptions, clientFileName);
+            return { success: true, project, errors: project.getProjectErrors() };
         }
 
         private updateNonInferredProject<T>(project: ExternalProject | ConfiguredProject, newUncheckedFiles: T[], propertyReader: FilePropertyReader<T>, newOptions: CompilerOptions, newTypingOptions: TypingOptions, compileOnSave: boolean) {
@@ -851,6 +850,7 @@ namespace ts.server {
             }
 
             const { success, projectOptions, errors } = this.convertConfigFileContentToProjectOptions(project.configFileName);
+            project.setProjectErrors(errors);
             if (!success) {
                 return errors;
             }
@@ -1052,15 +1052,15 @@ namespace ts.server {
             this.printProjects();
         }
 
-        private collectChanges(lastKnownProjectVersions: protocol.ProjectVersionInfo[], currentProjects: Project[], result: protocol.ProjectFiles[]): void {
+        private collectChanges(lastKnownProjectVersions: protocol.ProjectVersionInfo[], currentProjects: Project[], result: ProjectFilesWithTSDiagnostics[]): void {
             for (const proj of currentProjects) {
                 const knownProject = forEach(lastKnownProjectVersions, p => p.projectName === proj.getProjectName() && p);
                 result.push(proj.getChangesSinceVersion(knownProject && knownProject.version));
             }
         }
 
-        synchronizeProjectList(knownProjects: protocol.ProjectVersionInfo[]): protocol.ProjectFiles[] {
-            const files: protocol.ProjectFiles[] = [];
+        synchronizeProjectList(knownProjects: protocol.ProjectVersionInfo[]): ProjectFilesWithTSDiagnostics[] {
+            const files: ProjectFilesWithTSDiagnostics[] = [];
             this.collectChanges(knownProjects, this.externalProjects, files);
             this.collectChanges(knownProjects, this.configuredProjects, files);
             this.collectChanges(knownProjects, this.inferredProjects, files);
