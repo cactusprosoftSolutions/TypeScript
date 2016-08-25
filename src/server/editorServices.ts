@@ -781,11 +781,13 @@ namespace ts.server {
             const oldRootScriptInfos = project.getRootScriptInfos();
             const newRootScriptInfos: ScriptInfo[] = [];
             const newRootScriptInfoMap: NormalizedPathMap<ScriptInfo> = createNormalizedPathMap<ScriptInfo>();
-
+            
+            let projectErrors: Diagnostic[];
             let rootFilesChanged = false;
             for (const f of newUncheckedFiles) {
                 const newRootFile = propertyReader.getFileName(f);
                 if (!this.host.fileExists(newRootFile)) {
+                    (projectErrors || (projectErrors = [])).push(createCompilerDiagnostic(Diagnostics.File_0_not_found, newRootFile));
                     continue;
                 }
                 const normalizedPath = toNormalizedPath(newRootFile);
@@ -839,6 +841,8 @@ namespace ts.server {
             project.setCompilerOptions(newOptions);
             (<ExternalProject | ConfiguredProject>project).setTypingOptions(newTypingOptions);
             project.compileOnSaveEnabled = !!compileOnSave;
+            project.setProjectErrors(projectErrors);
+
             project.updateGraph();
         }
 

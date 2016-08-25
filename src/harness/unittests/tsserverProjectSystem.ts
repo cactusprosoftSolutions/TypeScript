@@ -2149,7 +2149,8 @@ namespace ts {
                 const knownProjects = projectService.synchronizeProjectList([]);
                 assert.equal(knownProjects.length, 1, "expected 1 project in the list");
                 assert.equal(knownProjects[0].info.projectName, projectFileName, "expected 1 project in the list");
-                assert.equal(knownProjects[0].projectErrors === undefined, `expected no errors in the list, got ${knownProjects[0].projectErrors.length}`);
+                const errorsCount = knownProjects[0].projectErrors && knownProjects[0].projectErrors.length;
+                assert.equal(errorsCount, undefined, `expected no errors in the list, got ${errorsCount}`);
             }
         })
     });
