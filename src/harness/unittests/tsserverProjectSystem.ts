@@ -2106,4 +2106,51 @@ namespace ts {
             assert.isTrue(runTsdIsCalled, "expected 'runTsdIsCalled' to be true");
         });
     });
+
+    describe("Project errors", () => {
+        it("external project - diagnostics for missing files", () => {
+            const file1 = {
+                path: "/a/b/app.ts",
+                content: ""
+            };
+            const file2 = {
+                path: "/a/b/lib.ts",
+                content: ""
+            };
+            // only file1 exists
+            const host = createServerHost([file1]);
+            const projectService = createProjectService(host);
+            const projectFileName = "/a/b/test.csproj";
+            projectService.openExternalProject({
+                projectFileName,
+                options: {},
+                rootFiles: toExternalFiles([file1.path, file2.path])
+            });
+
+            projectService.checkNumberOfProjects({externalProjects: 1});
+            {
+                const knownProjects = projectService.synchronizeProjectList([]);
+                assert.equal(knownProjects.length, 1, "expected 1 project in the list");
+                assert.equal(knownProjects[0].info.projectName, projectFileName, "expected 1 project in the list");
+                assert.equal(knownProjects[0].projectErrors.length, 1, `expected 1 error in the list, got ${knownProjects[0].projectErrors.length}`);
+                const actualMessage = flattenDiagnosticMessageText(knownProjects[0].projectErrors[0].messageText, "\n");
+                const expectedMessage = "File '/a/b/lib.ts' not found.";
+                assert.equal(actualMessage, expectedMessage, "error message does not match");
+            }
+            // refresh project
+            host.reloadFS([file1, file2]);
+            projectService.openExternalProject({
+                projectFileName,
+                options: {},
+                rootFiles: toExternalFiles([file1.path, file2.path])
+            });
+            projectService.checkNumberOfProjects({externalProjects: 1});
+            {
+                const knownProjects = projectService.synchronizeProjectList([]);
+                assert.equal(knownProjects.length, 1, "expected 1 project in the list");
+                assert.equal(knownProjects[0].info.projectName, projectFileName, "expected 1 project in the list");
+                assert.equal(knownProjects[0].projectErrors === undefined, `expected no errors in the list, got ${knownProjects[0].projectErrors.length}`);
+            }
+        })
+    });
 }
